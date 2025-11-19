@@ -15,6 +15,86 @@ AI_PIECE = 2
 EMPTY = 0
 WIN_COUNT = 3
 
+# -----------------------------
+# Heuristic Helpers (3x3 focus)
+# -----------------------------
+PREFERRED_MOVES_3X3 = [
+    (1, 1),  # center
+    (0, 0), (0, 2), (2, 0), (2, 2),  # corners
+    (0, 1), (1, 0), (1, 2), (2, 1)   # edges
+]
+
+
+def prioritize_moves(board):
+    """
+    Lấy danh sách nước đi ưu tiên dựa trên kích thước bàn cờ.
+    - Với 3x3: tái sử dụng logic ưu tiên từ heuristic.py (center -> corners -> edges)
+    - Với 9x9: sắp xếp theo khoảng cách Manhattan tới ô trung tâm
+    """
+    moves = get_valid_locations(board)
+    rows, cols = len(board), len(board[0])
+
+    if rows == 3 and cols == 3:
+        prioritized = [pos for pos in PREFERRED_MOVES_3X3 if board[pos[0]][pos[1]] == EMPTY]
+        remaining = [move for move in moves if move not in prioritized]
+        return prioritized + remaining
+
+    center_r, center_c = rows // 2, cols // 2
+    return sorted(
+        moves,
+        key=lambda move: abs(move[0] - center_r) + abs(move[1] - center_c)
+    )
+
+
+def _score_line_small(line, piece, opp_piece):
+    score = 0
+    if line.count(piece) == 3:
+        score += 100
+    elif line.count(piece) == 2 and line.count(EMPTY) == 1:
+        score += 10
+    elif line.count(piece) == 1 and line.count(EMPTY) == 2:
+        score += 1
+
+    if line.count(opp_piece) == 3:
+        score -= 100
+    elif line.count(opp_piece) == 2 and line.count(EMPTY) == 1:
+        score -= 9
+
+    return score
+
+
+def evaluate_small_board(board, piece):
+    """
+    Đánh giá bàn 3x3 bằng heuristic tương tự heuristic.py:
+    - Ưu tiên chiến thắng/thua, sau đó ưu tiên ô giữa, góc
+    """
+    opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
+    lines = []
+
+    for idx in range(3):
+        lines.append([board[idx][0], board[idx][1], board[idx][2]])
+        lines.append([board[0][idx], board[1][idx], board[2][idx]])
+
+    lines.append([board[0][0], board[1][1], board[2][2]])
+    lines.append([board[0][2], board[1][1], board[2][0]])
+
+    score = sum(_score_line_small(line, piece, opp_piece) for line in lines)
+
+    center = board[1][1]
+    if center == piece:
+        score += 3
+    elif center == opp_piece:
+        score -= 3
+
+    corners = [board[0][0], board[0][2], board[2][0], board[2][2]]
+    for corner in corners:
+        if corner == piece:
+            score += 1
+        elif corner == opp_piece:
+            score -= 1
+
+    return score
+
 
 # -----------------------------
 # UI Theme (match sample image)
@@ -141,52 +221,39 @@ def is_terminal_node(board):
     return winning_move(board, PLAYER_PIECE) or winning_move(board, AI_PIECE) or len(get_valid_locations(board)) == 0
 
 
-# Optimized minimax for Tic Tac Toe
+# Optimized minimax for Tic Tac Toe (kết hợp Minimax + Heuristic)
 def minimax(board, depth, alpha, beta, maximizingPlayer, piece, start_time=None, time_limit=10):
-    # Thêm time_limit để tránh treo máy
-    if start_time and time.time() - start_time > time_limit:
-        # Return a random valid move if timeout
-        valid_locations = get_valid_locations(board)
-        if valid_locations:
-            return random.choice(valid_locations), 0
-        return None, 0
-
-    valid_locations = get_valid_locations(board)
-    terminal = is_terminal_node(board)
+    rows, cols = len(board), len(board[0])
     opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
+    valid_locations = prioritize_moves(board)
 
-    if depth == 0 or terminal:
-        if terminal:
-            if winning_move(board, piece):
-                return (None, 1000)
-            elif winning_move(board, opp_piece):
-                return (None, -1000)
-            else:
-                return (None, 0)
-        else:
-            return (None, evaluate_board(board, piece))
+    # Bảo vệ thời gian xử lý (tham chiếu từ Minimax.py)
+    if start_time and time.time() - start_time > time_limit:
+        return (valid_locations[0], 0) if valid_locations else (None, 0)
 
+    # Kiểm tra trạng thái kết thúc tái sử dụng heuristicEvaluate
+    if winning_move(board, piece):
+        return (None, 1000 + depth)
+    if winning_move(board, opp_piece):
+        return (None, -1000 - depth)
     if not valid_locations:
         return (None, 0)
+    if depth == 0:
+        if rows == 3 and cols == 3:
+            return (None, evaluate_small_board(board, piece))
+        return (None, evaluate_board(board, piece))
 
     if maximizingPlayer:
         value = -math.inf
-        best_move = random.choice(valid_locations)
-
-        for move in valid_locations:
-            r, c = move
+        best_move = valid_locations[0]
+        for r, c in valid_locations:
             board_copy = [row[:] for row in board]
             drop_piece(board_copy, r, c, piece)
 
-            result = minimax(board_copy, depth - 1, alpha, beta, False, piece, start_time, time_limit)
-            if result is None:
-                continue
-
-            new_move, new_score = result
-
+            _, new_score = minimax(board_copy, depth - 1, alpha, beta, False, piece, start_time, time_limit)
             if new_score > value:
                 value = new_score
-                best_move = move
+                best_move = (r, c)
 
             alpha = max(alpha, value)
             if alpha >= beta:
@@ -195,22 +262,15 @@ def minimax(board, depth, alpha, beta, maximizingPlayer, piece, start_time=None,
         return best_move, value
     else:
         value = math.inf
-        best_move = random.choice(valid_locations)
-
-        for move in valid_locations:
-            r, c = move
+        best_move = valid_locations[0]
+        for r, c in valid_locations:
             board_copy = [row[:] for row in board]
             drop_piece(board_copy, r, c, opp_piece)
 
-            result = minimax(board_copy, depth - 1, alpha, beta, True, piece, start_time, time_limit)
-            if result is None:
-                continue
-
-            new_move, new_score = result
-
+            _, new_score = minimax(board_copy, depth - 1, alpha, beta, True, piece, start_time, time_limit)
             if new_score < value:
                 value = new_score
-                best_move = move
+                best_move = (r, c)
 
             beta = min(beta, value)
             if alpha >= beta:
@@ -763,17 +823,34 @@ class GameFrame(tk.Frame):
         if self.game_over:
             return
 
-        if self.turn == PLAYER_PIECE:
-            self.status_label.config(text="Your turn (X)", fg="red")
+        if self.mode == "Human vs Human":
+            text = "Player X's turn" if self.turn == PLAYER_PIECE else "Player O's turn"
+            color = "red" if self.turn == PLAYER_PIECE else "purple"
+        elif self.mode == "AI vs AI":
+            text = f"AI {'X' if self.turn == PLAYER_PIECE else 'O'} is thinking..."
+            color = "blue"
         else:
-            self.status_label.config(text="AI's turn (O)", fg="blue")
+            if self.turn == PLAYER_PIECE:
+                text = "Your turn (X)"
+                color = "red"
+            else:
+                text = "AI's turn (O)"
+                color = "blue"
+
+        self.status_label.config(text=text, fg=color)
 
     def after_move(self):
         if winning_move(self.board, self.turn):
             self.game_over = True
-            winner = "You" if self.turn == PLAYER_PIECE else "AI"
-            messagebox.showinfo("Game Over", f"{winner} win!")
-            self.status_label.config(text=f"Game Over - {winner} win!", fg="green")
+            if self.mode == "Human vs Human":
+                winner_text = "Player X" if self.turn == PLAYER_PIECE else "Player O"
+            elif self.mode == "AI vs AI":
+                winner_text = f"AI {'X' if self.turn == PLAYER_PIECE else 'O'}"
+            else:
+                winner_text = "You" if self.turn == PLAYER_PIECE else "AI"
+
+            messagebox.showinfo("Game Over", f"{winner_text} win!")
+            self.status_label.config(text=f"Game Over - {winner_text} win!", fg="green")
             self.hint_label.config(text="")
             return
 
@@ -808,7 +885,13 @@ class GameFrame(tk.Frame):
         if row < 0 or row >= rows or col < 0 or col >= cols:
             return
 
-        if self.mode in ["Human vs AI", "Human vs Human", "Assisted"] and self.turn == PLAYER_PIECE:
+        human_turn = False
+        if self.mode == "Human vs Human":
+            human_turn = True
+        elif self.mode in ["Human vs AI", "Assisted"]:
+            human_turn = (self.turn == PLAYER_PIECE)
+
+        if human_turn:
             self.human_move(row, col)
 
     def human_move(self, row, col):
