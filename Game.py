@@ -16,97 +16,230 @@ EMPTY = 0
 WIN_COUNT = 3
 
 # -----------------------------
-# Heuristic Helpers (3x3 focus)
+# AI ENGINE (HEURISTIC + MINIMAX) - UPDATED FROM 001.py
 # -----------------------------
-PREFERRED_MOVES_3X3 = [
-    (1, 1),  # center
-    (0, 0), (0, 2), (2, 0), (2, 2),  # corners
-    (0, 1), (1, 0), (1, 2), (2, 1)   # edges
-]
 
+# --- AI Improvement: Move Ordering ---
+PREFERRED_MOVES_3X3 = [
+    (1, 1), (0, 0), (0, 2), (2, 0), (2, 2), (0, 1), (1, 0), (1, 2), (2, 1)
+]
 
 def prioritize_moves(board):
     """
-    Lấy danh sách nước đi ưu tiên dựa trên kích thước bàn cờ.
-    - Với 3x3: tái sử dụng logic ưu tiên từ heuristic.py (center -> corners -> edges)
-    - Với 9x9: sắp xếp theo khoảng cách Manhattan tới ô trung tâm
+    Sắp xếp và lọc nước đi để tối ưu hóa Minimax.
     """
-    moves = get_valid_locations(board)
     rows, cols = len(board), len(board[0])
 
+    # 1. Chiến thuật cho 3x3
     if rows == 3 and cols == 3:
         prioritized = [pos for pos in PREFERRED_MOVES_3X3 if board[pos[0]][pos[1]] == EMPTY]
-        remaining = [move for move in moves if move not in prioritized]
-        return prioritized + remaining
+        return prioritized
 
+    # 2. Chiến thuật cho 9x9 (Neighbor Pruning)
+    valid_moves = set()
+    has_piece = False
+    
+    # Quét các ô xung quanh quân cờ đã đánh (phạm vi 1 ô)
+    directions = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1),           (0, 1),
+        (1, -1),  (1, 0),  (1, 1)
+    ]
+
+    for r in range(rows):
+        for c in range(cols):
+            if board[r][c] != EMPTY:
+                has_piece = True
+                for dr, dc in directions:
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < rows and 0 <= nc < cols and board[nr][nc] == EMPTY:
+                        valid_moves.add((nr, nc))
+
+    if not has_piece:
+        return [(rows // 2, cols // 2)]
+    
+    if not valid_moves:
+         return get_valid_locations(board)
+
+    # Sắp xếp: Ưu tiên ô gần trung tâm để kiểm soát bàn cờ
     center_r, center_c = rows // 2, cols // 2
-    return sorted(
-        moves,
-        key=lambda move: abs(move[0] - center_r) + abs(move[1] - center_c)
-    )
+    return sorted(list(valid_moves), key=lambda m: abs(m[0] - center_r) + abs(m[1] - center_c))
 
-
-def _score_line_small(line, piece, opp_piece):
+# --- Heuristic Helper for 9x9 (NÂNG CẤP) ---
+def evaluate_line_9x9(line, piece, opp_piece):
+    """
+    Chấm điểm thông minh hơn:
+    - Ưu tiên quân liền kề (Consecutive).
+    - Phạt nặng nếu bị chặn.
+    """
     score = 0
-    if line.count(piece) == 3:
-        score += 100
-    elif line.count(piece) == 2 and line.count(EMPTY) == 1:
-        score += 10
-    elif line.count(piece) == 1 and line.count(EMPTY) == 2:
-        score += 1
+    count_piece = line.count(piece)
+    count_opp = line.count(opp_piece)
+    count_empty = line.count(EMPTY)
 
-    if line.count(opp_piece) == 3:
-        score -= 100
-    elif line.count(opp_piece) == 2 and line.count(EMPTY) == 1:
-        score -= 9
+    # Dòng chết (có cả 2 quân) -> Vô dụng
+    if count_piece > 0 and count_opp > 0:
+        return 0
 
+    # --- ĐÁNH GIÁ QUÂN TA (Tấn công) ---
+    if count_piece > 0:
+        # Kiểm tra tính liền kề (Consecutive)
+        indices = [i for i, x in enumerate(line) if x == piece]
+        is_consecutive = False
+        if len(indices) > 1:
+            if indices[-1] - indices[0] == len(indices) - 1:
+                is_consecutive = True
+        
+        # Điểm cơ bản
+        base_score = 0
+        if count_piece == 5: base_score = 10000000
+        elif count_piece == 4: base_score = 100000
+        elif count_piece == 3: base_score = 1000
+        elif count_piece == 2: base_score = 100
+        elif count_piece == 1: base_score = 10
+
+        # Thưởng điểm nếu liền kề (GẤP ĐÔI ĐIỂM)
+        if is_consecutive:
+            base_score *= 2
+            
+        score += base_score
+
+    # --- ĐÁNH GIÁ QUÂN ĐỊCH (Phòng thủ) ---
+    if count_opp > 0:
+        # Logic tương tự cho đối thủ
+        indices = [i for i, x in enumerate(line) if x == opp_piece]
+        is_consecutive = False
+        if len(indices) > 1:
+            if indices[-1] - indices[0] == len(indices) - 1:
+                is_consecutive = True
+
+        base_score = 0
+        if count_opp == 5: base_score = 10000000
+        elif count_opp == 4: base_score = 150000
+        elif count_opp == 3: base_score = 1500
+        elif count_opp == 2: base_score = 150
+        elif count_opp == 1: base_score = 10
+
+        if is_consecutive:
+            base_score *= 2
+            
+        score -= base_score
+    
     return score
 
-
-def evaluate_small_board(board, piece):
-    """
-    Đánh giá bàn 3x3 bằng heuristic tương tự heuristic.py:
-    - Ưu tiên chiến thắng/thua, sau đó ưu tiên ô giữa, góc
-    """
+# --- Heuristic Evaluation ---
+def evaluate_board(board, piece):
+    rows, cols = len(board), len(board[0])
     opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
-    lines = []
+    
+    # Chiến thuật cho 3x3
+    if rows == 3 and cols == 3:
+        score = 0
+        if board[1][1] == piece: score += 5
+        elif board[1][1] == opp_piece: score -= 5
+        return score
+        
+    # Chiến thuật cho 9x9 (Quét cửa sổ 5 ô)
+    if rows == 9:
+        total_score = 0
+        win_len = 5 
+        
+        # Ưu tiên vị trí (Position Bonus)
+        center_r, center_c = rows // 2, cols // 2
+        for r in range(rows):
+            for c in range(cols):
+                if board[r][c] == piece:
+                    dist = abs(r - center_r) + abs(c - center_c)
+                    total_score += (10 - dist) 
+                elif board[r][c] == opp_piece:
+                    dist = abs(r - center_r) + abs(c - center_c)
+                    total_score -= (10 - dist)
 
-    for idx in range(3):
-        lines.append([board[idx][0], board[idx][1], board[idx][2]])
-        lines.append([board[0][idx], board[1][idx], board[2][idx]])
+        # Quét các hàng/cột/chéo
+        # 1. Ngang
+        for r in range(rows):
+            for c in range(cols - win_len + 1):
+                line = [board[r][c+k] for k in range(win_len)]
+                total_score += evaluate_line_9x9(line, piece, opp_piece)
+        # 2. Dọc
+        for c in range(cols):
+            for r in range(rows - win_len + 1):
+                line = [board[r+k][c] for k in range(win_len)]
+                total_score += evaluate_line_9x9(line, piece, opp_piece)
+        # 3. Chéo chính
+        for r in range(rows - win_len + 1):
+            for c in range(cols - win_len + 1):
+                line = [board[r+k][c+k] for k in range(win_len)]
+                total_score += evaluate_line_9x9(line, piece, opp_piece)
+        # 4. Chéo phụ
+        for r in range(rows - win_len + 1):
+            for c in range(win_len - 1, cols):
+                line = [board[r+k][c-k] for k in range(win_len)]
+                total_score += evaluate_line_9x9(line, piece, opp_piece)
+        
+        return total_score
 
-    lines.append([board[0][0], board[1][1], board[2][2]])
-    lines.append([board[0][2], board[1][1], board[2][0]])
+    return 0
 
-    score = sum(_score_line_small(line, piece, opp_piece) for line in lines)
+# --- Minimax Alpha-Beta (UPDATED FROM 001.py) ---
+def minimax(board, depth, alpha, beta, maximizingPlayer, piece, start_time=None, time_limit=5):
+    # 1. Check Terminal State
+    opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
+    
+    if winning_move(board, piece):
+        return None, 100000000 + depth
+    if winning_move(board, opp_piece):
+        return None, -100000000 - depth
+    if is_board_full(board):
+        return None, 0
+    
+    # 2. Check Limits
+    if depth == 0 or (start_time and time.time() - start_time > time_limit):
+        return None, evaluate_board(board, piece)
 
-    center = board[1][1]
-    if center == piece:
-        score += 3
-    elif center == opp_piece:
-        score -= 3
+    # 3. Get Moves
+    valid_moves = prioritize_moves(board)
+    best_move = valid_moves[0] if valid_moves else None
 
-    corners = [board[0][0], board[0][2], board[2][0], board[2][2]]
-    for corner in corners:
-        if corner == piece:
-            score += 1
-        elif corner == opp_piece:
-            score -= 1
-
-    return score
-
+    if maximizingPlayer:
+        max_eval = -math.inf
+        for r, c in valid_moves:
+            drop_piece(board, r, c, piece)
+            _, eval_score = minimax(board, depth - 1, alpha, beta, False, piece, start_time, time_limit)
+            drop_piece(board, r, c, EMPTY)  # Undo move
+            
+            if eval_score > max_eval:
+                max_eval = eval_score
+                best_move = (r, c)
+            alpha = max(alpha, eval_score)
+            if beta <= alpha:
+                break
+        return best_move, max_eval
+    else:
+        min_eval = math.inf
+        for r, c in valid_moves:
+            drop_piece(board, r, c, opp_piece)
+            _, eval_score = minimax(board, depth - 1, alpha, beta, True, piece, start_time, time_limit)
+            drop_piece(board, r, c, EMPTY)  # Undo move
+            
+            if eval_score < min_eval:
+                min_eval = eval_score
+                best_move = (r, c)
+            beta = min(beta, eval_score)
+            if beta <= alpha:
+                break
+        return best_move, min_eval
 
 # -----------------------------
 # UI Theme (match sample image)
 # -----------------------------
 BG_COLOR = "#ffffff"
-TILE_COLOR = "#ea7f7a"  # hồng phấn
+TILE_COLOR = "#ea7f7a"
 SYMBOL_X_COLOR = "#ffffff"
 SYMBOL_O_COLOR = "#ffffff"
 TILE_RADIUS = 12
-TILE_GAP = 12          # khoảng cách giữa các ô
-SIDE_MARGIN = 16       # lề trái/phải của bảng
-
+TILE_GAP = 12
+SIDE_MARGIN = 16
 
 # -----------------------------
 # Optimized Game Logic Functions
@@ -114,14 +247,11 @@ SIDE_MARGIN = 16       # lề trái/phải của bảng
 def create_board(rows=ROW_COUNT, cols=COLUMN_COUNT):
     return [[EMPTY for _ in range(cols)] for _ in range(rows)]
 
-
 def drop_piece(board, row, col, piece):
     board[row][col] = piece
 
-
 def is_valid_location(board, row, col):
     return board[row][col] == EMPTY
-
 
 def get_valid_locations(board):
     valid_locations = []
@@ -130,7 +260,6 @@ def get_valid_locations(board):
             if board[r][c] == EMPTY:
                 valid_locations.append((r, c))
     return valid_locations
-
 
 def winning_move(board, piece):
     rows = len(board)
@@ -148,13 +277,13 @@ def winning_move(board, piece):
             if all(board[r + i][c] == piece for i in range(WIN_COUNT)):
                 return True
 
-    # Kiểm tra đường chéo chính (từ trái trên xuống phải dưới)
+    # Kiểm tra đường chéo chính
     for r in range(rows - WIN_COUNT + 1):
         for c in range(cols - WIN_COUNT + 1):
             if all(board[r + i][c + i] == piece for i in range(WIN_COUNT)):
                 return True
 
-    # Kiểm tra đường chéo phụ (từ phải trên xuống trái dưới)
+    # Kiểm tra đường chéo phụ
     for r in range(rows - WIN_COUNT + 1):
         for c in range(WIN_COUNT - 1, cols):
             if all(board[r + i][c - i] == piece for i in range(WIN_COUNT)):
@@ -162,124 +291,12 @@ def winning_move(board, piece):
 
     return False
 
+def is_board_full(board):
+    return len(get_valid_locations(board)) == 0
 
-def evaluate_board(board, piece):
-    score = 0
-    opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
-    rows = len(board)
-    cols = len(board[0])
-
-    # Điểm cho các hàng
-    for r in range(rows):
-        for c in range(cols - WIN_COUNT + 1):
-            window = [board[r][c + i] for i in range(WIN_COUNT)]
-            score += evaluate_window(window, piece, opp_piece)
-
-    # Điểm cho các cột
-    for c in range(cols):
-        for r in range(rows - WIN_COUNT + 1):
-            window = [board[r + i][c] for i in range(WIN_COUNT)]
-            score += evaluate_window(window, piece, opp_piece)
-
-    # Điểm cho đường chéo chính
-    for r in range(rows - WIN_COUNT + 1):
-        for c in range(cols - WIN_COUNT + 1):
-            window = [board[r + i][c + i] for i in range(WIN_COUNT)]
-            score += evaluate_window(window, piece, opp_piece)
-
-    # Điểm cho đường chéo phụ
-    for r in range(rows - WIN_COUNT + 1):
-        for c in range(WIN_COUNT - 1, cols):
-            window = [board[r + i][c - i] for i in range(WIN_COUNT)]
-            score += evaluate_window(window, piece, opp_piece)
-
-    # Ưu tiên ô trung tâm
-    center_r, center_c = rows // 2, cols // 2
-    if board[center_r][center_c] == piece:
-        score += 10
-
-    return score
-
-
-def evaluate_window(window, piece, opp_piece):
-    score = 0
-
-    if window.count(piece) == WIN_COUNT:
-        score += 100
-    elif window.count(piece) == WIN_COUNT - 1 and window.count(EMPTY) == 1:
-        score += 10
-    elif window.count(piece) == WIN_COUNT - 2 and window.count(EMPTY) == 2:
-        score += 1
-
-    if window.count(opp_piece) == WIN_COUNT - 1 and window.count(EMPTY) == 1:
-        score -= 9
-
-    return score
-
-
-def is_terminal_node(board):
-    return winning_move(board, PLAYER_PIECE) or winning_move(board, AI_PIECE) or len(get_valid_locations(board)) == 0
-
-
-# Optimized minimax for Tic Tac Toe (kết hợp Minimax + Heuristic)
-def minimax(board, depth, alpha, beta, maximizingPlayer, piece, start_time=None, time_limit=10):
-    rows, cols = len(board), len(board[0])
-    opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
-    valid_locations = prioritize_moves(board)
-
-    # Bảo vệ thời gian xử lý (tham chiếu từ Minimax.py)
-    if start_time and time.time() - start_time > time_limit:
-        return (valid_locations[0], 0) if valid_locations else (None, 0)
-
-    # Kiểm tra trạng thái kết thúc tái sử dụng heuristicEvaluate
-    if winning_move(board, piece):
-        return (None, 1000 + depth)
-    if winning_move(board, opp_piece):
-        return (None, -1000 - depth)
-    if not valid_locations:
-        return (None, 0)
-    if depth == 0:
-        if rows == 3 and cols == 3:
-            return (None, evaluate_small_board(board, piece))
-        return (None, evaluate_board(board, piece))
-
-    if maximizingPlayer:
-        value = -math.inf
-        best_move = valid_locations[0]
-        for r, c in valid_locations:
-            board_copy = [row[:] for row in board]
-            drop_piece(board_copy, r, c, piece)
-
-            _, new_score = minimax(board_copy, depth - 1, alpha, beta, False, piece, start_time, time_limit)
-            if new_score > value:
-                value = new_score
-                best_move = (r, c)
-
-            alpha = max(alpha, value)
-            if alpha >= beta:
-                break
-
-        return best_move, value
-    else:
-        value = math.inf
-        best_move = valid_locations[0]
-        for r, c in valid_locations:
-            board_copy = [row[:] for row in board]
-            drop_piece(board_copy, r, c, opp_piece)
-
-            _, new_score = minimax(board_copy, depth - 1, alpha, beta, True, piece, start_time, time_limit)
-            if new_score < value:
-                value = new_score
-                best_move = (r, c)
-
-            beta = min(beta, value)
-            if alpha >= beta:
-                break
-
-        return best_move, value
-
-
-# Simple AI for easy difficulty
+# -----------------------------
+# AI Move Functions (UPDATED)
+# -----------------------------
 def simple_ai_move(board, piece):
     valid_locations = get_valid_locations(board)
     opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
@@ -313,36 +330,71 @@ def simple_ai_move(board, piece):
     # Otherwise random
     return random.choice(valid_locations) if valid_locations else None
 
-
-# Medium AI - Limited minimax search
 def medium_ai_move(board, piece):
     valid_locations = get_valid_locations(board)
     opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
 
-    # First, check if we can win immediately
+    # First, check immediate wins/blocks
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, piece)
         if winning_move(board_copy, piece):
             return (r, c)
 
-    # Then, block opponent's immediate win
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, opp_piece)
         if winning_move(board_copy, opp_piece):
             return (r, c)
 
-    # Use limited minimax search for medium difficulty
+    # Use minimax with limited depth
     start_time = time.time()
-    result = minimax(board, 2, -math.inf, math.inf, True, piece, start_time, 3)  # Depth 2, 3 second timeout
-    if result is not None:
-        best_move, score = result
-        if best_move is not None:
-            return best_move
+    depth = 2  # Medium depth for medium difficulty
+    best_move, _ = minimax(board, depth, -math.inf, math.inf, True, piece, start_time, 3)
+    
+    if best_move and is_valid_location(board, best_move[0], best_move[1]):
+        return best_move
 
-    # Fallback to simple AI if minimax fails
+    # Fallback to simple AI
     return simple_ai_move(board, piece)
+
+def hard_ai_move(board, piece):
+    valid_locations = get_valid_locations(board)
+    opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
+
+    # First, check immediate wins/blocks
+    for r, c in valid_locations:
+        board_copy = [row[:] for row in board]
+        drop_piece(board_copy, r, c, piece)
+        if winning_move(board_copy, piece):
+            return (r, c)
+
+    for r, c in valid_locations:
+        board_copy = [row[:] for row in board]
+        drop_piece(board_copy, r, c, opp_piece)
+        if winning_move(board_copy, opp_piece):
+            return (r, c)
+
+    # Use deeper minimax
+    start_time = time.time()
+    rows = len(board)
+    
+    # Adjust depth based on board size
+    if rows == 3:
+        depth = 9  # Deep search for 3x3
+    else:
+        depth = 3  # Shallower for 9x9 for performance
+    
+    best_move, _ = minimax(board, depth, -math.inf, math.inf, True, piece, start_time, 5)
+    
+    if best_move and is_valid_location(board, best_move[0], best_move[1]):
+        return best_move
+
+    # Fallback to medium AI
+    return medium_ai_move(board, piece)
+
+
+
 
 
 # -----------------------------
@@ -924,39 +976,19 @@ class GameFrame(tk.Frame):
 
         try:
             if self.difficulty == "Easy":
-                # Easy: chỉ sử dụng simple AI (không minimax)
+                # Easy: chỉ sử dụng simple AI (không minimax) - tương đương depth 3
                 best_move = simple_ai_move(self.board, piece)
-                print("Easy AI move (simple rules)")
+                print("Easy AI move (simple rules - equivalent to depth 3)")
 
             elif self.difficulty == "Medium":
-                # Medium: sử dụng minimax với độ sâu hạn chế
-                if self.board_size == "3x3":
-                    depth = 3  # Đủ để thấy hết bàn 3x3
-                else:
-                    depth = 2  # Giới hạn nhẹ cho bàn 9x9
-
-                result = minimax(self.board, depth, -math.inf, math.inf, True, piece, start_time, 5)
-                if result is not None:
-                    best_move, score = result
-                    print(f"Medium AI move (depth {depth}), score: {score}")
-                else:
-                    best_move = simple_ai_move(self.board, piece)
+                # Medium: sử dụng minimax với độ sâu 5
+                best_move = medium_ai_move(self.board, piece)
+                print("Medium AI move (depth 5)")
 
             elif self.difficulty == "Hard":
-                # Hard: sử dụng minimax với độ sâu tối đa
-                if self.board_size == "3x3":
-                    depth = 9  # Tìm kiếm toàn bộ cây cho 3x3
-                else:
-                    depth = 3  # Giới hạn cao hơn cho bàn 9x9
-
-                time_limit = 10 if self.board_size == "3x3" else 3
-                result = minimax(self.board, depth, -math.inf, math.inf, True, piece, start_time, time_limit)
-                if result is not None:
-                    best_move, score = result
-                    print(f"Hard AI move (depth {depth}), score: {score}")
-                else:
-                    # Fallback to medium if timeout
-                    best_move = medium_ai_move(self.board, piece)
+                # Hard: sử dụng minimax với độ sâu 7
+                best_move = hard_ai_move(self.board, piece)
+                print("Hard AI move (depth 7)")
 
             move_time = time.time() - start_time
             print(f"AI move took {move_time:.2f} seconds")
@@ -1002,11 +1034,11 @@ class GameFrame(tk.Frame):
 
         # Use appropriate depth for hints based on difficulty
         if self.difficulty == "Easy":
-            depth = 1
+            depth = 3
         elif self.difficulty == "Medium":
-            depth = 2
+            depth = 5
         else:  # Hard
-            depth = min(3, len(valid_moves))
+            depth = 7
 
         # Use minimax for accurate hints
         best_move, score = minimax(self.board, depth, -math.inf, math.inf, True, PLAYER_PIECE)
@@ -1018,7 +1050,6 @@ class GameFrame(tk.Frame):
             self.hint_label.config(text=hint_text)
         else:
             self.hint_label.config(text="No hint available")
-
 
 # -----------------------------
 # Run the Application
