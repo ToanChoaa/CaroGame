@@ -393,47 +393,6 @@ def hard_ai_move(board, piece):
     # Fallback to medium AI
     return medium_ai_move(board, piece)
 
-
-
-
-
-# -----------------------------
-# Strategy Helper Functions
-# -----------------------------
-def get_move_explanation(board, move, piece):
-    r, c = move
-    opp_piece = AI_PIECE if piece == PLAYER_PIECE else PLAYER_PIECE
-    rows, cols = len(board), len(board[0])
-
-    # Check for immediate win
-    for row, col in get_valid_locations(board):
-        board_copy = [row_data[:] for row_data in board]
-        drop_piece(board_copy, row, col, piece)
-        if winning_move(board_copy, piece):
-            if (row, col) == (r, c):
-                return "(Nước đi chiến thắng!)"
-
-    # Check for blocking opponent
-    for row, col in get_valid_locations(board):
-        board_copy = [row_data[:] for row_data in board]
-        drop_piece(board_copy, row, col, opp_piece)
-        if winning_move(board_copy, opp_piece):
-            if (row, col) == (r, c):
-                return "(Chặn nước đi nguy hiểm của đối thủ)"
-
-    # Center preference
-    center_r, center_c = rows // 2, cols // 2
-    if (r, c) == (center_r, center_c):
-        return "(Ô trung tâm - vị trí tốt nhất)"
-
-    # Corner preference
-    corners = [(0, 0), (0, cols - 1), (rows - 1, 0), (rows - 1, cols - 1)]
-    if (r, c) in corners:
-        return "(Ô góc - vị trí chiến lược)"
-
-    return "(Nước đi thông minh)"
-
-
 # -----------------------------
 # Tkinter GUI Implementation
 # -----------------------------
@@ -622,7 +581,7 @@ class WelcomeFrame(tk.Frame):
             card,
             "CHỌN CHẾ ĐỘ CỦA GAME:",
             self.mode_var,
-            ["Human vs AI", "Human vs Human", "AI vs AI", "Assisted"]
+            ["Human vs AI", "Human vs Human", "AI vs AI"]
         )
 
         self.difficulty_dropdown = self._create_dropdown(
@@ -724,7 +683,6 @@ class GameFrame(tk.Frame):
 
         self.canvas = None
         self.status_label = None
-        self.hint_label = None
         self.restart_button = None
         self.menu_button = None
 
@@ -756,8 +714,6 @@ class GameFrame(tk.Frame):
             self.canvas.destroy()
         if self.status_label:
             self.status_label.destroy()
-        if self.hint_label:
-            self.hint_label.destroy()
         if hasattr(self, 'button_frame') and self.button_frame:
             self.button_frame.destroy()
 
@@ -779,9 +735,6 @@ class GameFrame(tk.Frame):
 
         self.status_label = tk.Label(self, text="", font=("Helvetica", 14, "bold"), bg=BG_COLOR)
         self.status_label.pack(pady=5)
-
-        self.hint_label = tk.Label(self, text="", font=("Helvetica", 12), bg=BG_COLOR, wraplength=400)
-        self.hint_label.pack(pady=5)
 
         self.button_frame = tk.Frame(self, bg=BG_COLOR)
         self.button_frame.pack(pady=10)
@@ -816,20 +769,17 @@ class GameFrame(tk.Frame):
         self.board = create_board(ROW_COUNT, COLUMN_COUNT)
         self.game_over = False
 
-        if self.mode in ["Human vs Human", "Assisted"]:
+        if self.mode == "Human vs Human":
             self.turn = PLAYER_PIECE
         else:
             self.turn = random.choice([PLAYER_PIECE, AI_PIECE])
 
         self.draw_board()
         self.update_status()
-        self.hint_label.config(text="")
 
-        if ((self.mode in ["Human vs AI", "Assisted"]) and self.turn == AI_PIECE) or self.mode == "AI vs AI":
+        if ((self.mode == "Human vs AI" and self.turn == AI_PIECE) or 
+            self.mode == "AI vs AI"):
             self.after(500, self.ai_move)
-
-        if self.mode == "Assisted" and self.turn == PLAYER_PIECE:
-            self.after(500, self.update_hint)
 
     def back_to_menu(self):
         self.controller.show_frame(WelcomeFrame)
@@ -841,7 +791,7 @@ class GameFrame(tk.Frame):
         self.canvas.delete("all")
         rows, cols = len(self.board), len(self.board[0])
 
-        # Vẽ các “tile” bo góc theo mẫu
+        # Vẽ các "tile" bo góc theo mẫu
         tile_pad = TILE_GAP / 2
         stroke = 6 if self.board_size == "3x3" else 3
         for r in range(rows):
@@ -903,26 +853,20 @@ class GameFrame(tk.Frame):
 
             messagebox.showinfo("Game Over", f"{winner_text} win!")
             self.status_label.config(text=f"Game Over - {winner_text} win!", fg="green")
-            self.hint_label.config(text="")
             return
 
         if len(get_valid_locations(self.board)) == 0:
             self.game_over = True
             messagebox.showinfo("Game Over", "It's a draw!")
             self.status_label.config(text="Game Over - Draw!", fg="orange")
-            self.hint_label.config(text="")
             return
 
         self.turn = AI_PIECE if self.turn == PLAYER_PIECE else PLAYER_PIECE
         self.update_status()
 
-        if ((self.mode in ["Human vs AI", "Assisted"]) and self.turn == AI_PIECE) or self.mode == "AI vs AI":
+        if ((self.mode == "Human vs AI" and self.turn == AI_PIECE) or 
+            self.mode == "AI vs AI"):
             self.after(500, self.ai_move)
-
-        if self.mode == "Assisted" and self.turn == PLAYER_PIECE:
-            self.after(500, self.update_hint)
-        else:
-            self.hint_label.config(text="")
 
     def click_handler(self, event):
         if self.game_over:
@@ -940,7 +884,7 @@ class GameFrame(tk.Frame):
         human_turn = False
         if self.mode == "Human vs Human":
             human_turn = True
-        elif self.mode in ["Human vs AI", "Assisted"]:
+        elif self.mode == "Human vs AI":
             human_turn = (self.turn == PLAYER_PIECE)
 
         if human_turn:
@@ -1018,38 +962,6 @@ class GameFrame(tk.Frame):
                 self.board[r][c] = piece
                 self.draw_board()
                 self.after_move()
-
-    def update_hint(self):
-        if self.mode != "Assisted" or self.game_over or self.turn != PLAYER_PIECE:
-            self.hint_label.config(text="")
-            return
-
-        self.hint_label.config(text="Calculating hint...")
-        self.update()
-
-        valid_moves = get_valid_locations(self.board)
-        if not valid_moves:
-            self.hint_label.config(text="No moves available")
-            return
-
-        # Use appropriate depth for hints based on difficulty
-        if self.difficulty == "Easy":
-            depth = 3
-        elif self.difficulty == "Medium":
-            depth = 5
-        else:  # Hard
-            depth = 7
-
-        # Use minimax for accurate hints
-        best_move, score = minimax(self.board, depth, -math.inf, math.inf, True, PLAYER_PIECE)
-
-        if best_move is not None:
-            r, c = best_move
-            explanation = get_move_explanation(self.board, (r, c), PLAYER_PIECE)
-            hint_text = f"Hint: Try position ({r + 1}, {c + 1}). {explanation}"
-            self.hint_label.config(text=hint_text)
-        else:
-            self.hint_label.config(text="No hint available")
 
 # -----------------------------
 # Run the Application
