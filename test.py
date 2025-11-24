@@ -127,140 +127,6 @@ def evaluate_line_9x9(line, piece, opp_piece):
     
     return score
 
-# --- Hàm tính điểm hiển thị (chỉ đếm quân và mẫu liền kề) ---
-def calculate_score_for_one_side(board, piece):
-    """
-    Tính điểm cho 1 bên (không tính đối thủ)
-    """
-    rows, cols = len(board), len(board[0])
-    opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
-    
-    # ===== CHẾ ĐỘ 3x3: ĐẾM SỐ ĐƯỜNG THẮNG TIỀM NĂNG =====
-    if rows == 3 and cols == 3:
-        score = 0
-        lines = []
-        # 3 Hàng ngang
-        for r in range(3):
-            lines.append([board[r][c] for c in range(3)])
-        # 3 Hàng dọc
-        for c in range(3):
-            lines.append([board[r][c] for r in range(3)])
-        # 2 Đường chéo
-        lines.append([board[i][i] for i in range(3)])
-        lines.append([board[i][2-i] for i in range(3)])
-        
-        # Đếm số đường thắng tiềm năng (chứa quân mình hoặc trống, KHÔNG chứa địch)
-        for line in lines:
-            if opp_piece not in line:
-                count_piece = line.count(piece)
-                # Mỗi đường có quân mình thêm điểm
-                if count_piece == 3:
-                    score += 1000  # Thắng
-                elif count_piece == 2:
-                    score += 10
-                elif count_piece == 1:
-                    score += 1
-                else:  # count == 0 (đường trống hoàn toàn)
-                    score += 0
-        
-        return score
-    
-    # ===== CHẾ ĐỘ 9x9: LOGIC CŨ =====
-    if rows == 9:
-        score = 0
-        win_len = 5
-        counted_positions = set()
-        
-        # Quét tất cả các line 5 ô
-        all_patterns = []
-        
-        # 1. Ngang
-        for r in range(rows):
-            for c in range(cols - win_len + 1):
-                line = [(r, c+k) for k in range(win_len)]
-                all_patterns.append(line)
-        
-        # 2. Dọc
-        for c in range(cols):
-            for r in range(rows - win_len + 1):
-                line = [(r+k, c) for k in range(win_len)]
-                all_patterns.append(line)
-        
-        # 3. Chéo chính
-        for r in range(rows - win_len + 1):
-            for c in range(cols - win_len + 1):
-                line = [(r+k, c+k) for k in range(win_len)]
-                all_patterns.append(line)
-        
-        # 4. Chéo phụ
-        for r in range(rows - win_len + 1):
-            for c in range(win_len - 1, cols):
-                line = [(r+k, c-k) for k in range(win_len)]
-                all_patterns.append(line)
-        
-        # Tìm mẫu liền kề tốt nhất
-        best_patterns = []
-        for pattern in all_patterns:
-            pieces = [board[r][c] for r, c in pattern]
-            count_piece = pieces.count(piece)
-            
-            # Chỉ lấy line có quân của mình, không có quân địch
-            count_opp = pieces.count(opp_piece)
-            if count_opp > 0:
-                continue
-            
-            if count_piece >= 2:
-                indices = [i for i, (r, c) in enumerate(pattern) if board[r][c] == piece]
-                if len(indices) > 1 and indices[-1] - indices[0] == len(indices) - 1:
-                    best_patterns.append((count_piece, pattern, True))
-                else:
-                    best_patterns.append((count_piece, pattern, False))
-        
-        # Chọn mẫu tốt nhất
-        if best_patterns:
-            best_patterns.sort(key=lambda x: (x[0], x[2]), reverse=True)
-            best_count, best_pattern, is_consecutive = best_patterns[0]
-            
-            if best_count == 5: score += 10000000
-            elif best_count == 4: score += 100000
-            elif best_count == 3: score += 1000
-            elif best_count == 2: score += 100
-            
-            if is_consecutive and best_count >= 2:
-                score *= 2
-            
-            for r, c in best_pattern:
-                if board[r][c] == piece:
-                    counted_positions.add((r, c))
-        
-        # Cộng điểm cho các quân còn lại
-        for r in range(rows):
-            for c in range(cols):
-                if board[r][c] == piece and (r, c) not in counted_positions:
-                    score += 10
-        
-        return score
-    
-    return 0
-
-def calculate_display_score(board, piece):
-    """
-    Tính điểm hiển thị: E(n) = ∑Điểm người chơi - ∑Điểm đối thủ
-    """
-    rows, cols = len(board), len(board[0])
-    
-    # Tính cho bàn cờ 9x9
-    if rows == 9:
-        my_score = calculate_score_for_one_side(board, piece)
-        opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
-        opp_score = calculate_score_for_one_side(board, opp_piece)
-        
-        # E(n) = điểm của mình - điểm của đối thủ
-        return my_score - opp_score
-    
-    # Cho bàn cờ 3x3
-    return evaluate_board(board, piece)
-
 # --- Heuristic Evaluation ---
 def evaluate_board(board, piece):
     rows, cols = len(board), len(board[0])
@@ -270,7 +136,11 @@ def evaluate_board(board, piece):
     if rows == 3 and cols == 3:
         score = 0
         
-        # Đếm số khả năng thắng (Winning Lines)
+        # A. Điểm vị trí (Position Bonus)
+        if board[1][1] == piece: score += 5
+        elif board[1][1] == opp_piece: score -= 5
+        
+        # B. Đếm số khả năng thắng (Winning Lines)
         # Tạo danh sách tất cả các đường (ngang, dọc, chéo)
         lines = []
         # 3 Hàng ngang
@@ -293,8 +163,8 @@ def evaluate_board(board, piece):
             if piece not in line:
                 O_n += 1
         
-        # Công thức E(n) = X_n - O_n (không có bonus vị trí)
-        score = (X_n - O_n)
+        # Công thức E(n)
+        score += (X_n - O_n)
         
         return score
         
@@ -453,74 +323,91 @@ def winning_move(board, piece):
 def is_board_full(board):
     return len(get_valid_locations(board)) == 0
 
+# -----------------------------
+# AI Move Functions (UPDATED)
+# -----------------------------
 def simple_ai_move(board, piece):
     valid_locations = get_valid_locations(board)
     opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
+
     # First, check if we can win
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, piece)
         if winning_move(board_copy, piece):
             return (r, c)
+
     # Then, block opponent
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, opp_piece)
         if winning_move(board_copy, opp_piece):
             return (r, c)
+
     # Prefer center
     rows, cols = len(board), len(board[0])
     center_r, center_c = rows // 2, cols // 2
     if (center_r, center_c) in valid_locations:
         return (center_r, center_c)
+
     # Prefer corners
     corners = [(0, 0), (0, cols - 1), (rows - 1, 0), (rows - 1, cols - 1)]
     available_corners = [corner for corner in corners if corner in valid_locations]
     if available_corners:
         return random.choice(available_corners)
+
     # Otherwise random
     return random.choice(valid_locations) if valid_locations else None
 
 def medium_ai_move(board, piece):
     valid_locations = get_valid_locations(board)
     opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
+
     # First, check immediate wins/blocks
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, piece)
         if winning_move(board_copy, piece):
             return (r, c)
+
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, opp_piece)
         if winning_move(board_copy, opp_piece):
             return (r, c)
+
     # Use minimax with limited depth
     start_time = time.time()
     depth = 2  # Medium depth for medium difficulty
-    best_move, _ = minimax(board, depth, -math.inf, math.inf, True, piece, start_time, 3) 
+    best_move, _ = minimax(board, depth, -math.inf, math.inf, True, piece, start_time, 3)
+    
     if best_move and is_valid_location(board, best_move[0], best_move[1]):
         return best_move
+
     # Fallback to simple AI
     return simple_ai_move(board, piece)
 
 def hard_ai_move(board, piece):
     valid_locations = get_valid_locations(board)
     opp_piece = PLAYER_PIECE if piece == AI_PIECE else AI_PIECE
+
     # First, check immediate wins/blocks
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, piece)
         if winning_move(board_copy, piece):
             return (r, c)
+
     for r, c in valid_locations:
         board_copy = [row[:] for row in board]
         drop_piece(board_copy, r, c, opp_piece)
         if winning_move(board_copy, opp_piece):
             return (r, c)
+
     # Use deeper minimax
     start_time = time.time()
-    rows = len(board)  
+    rows = len(board)
+    
     # Adjust depth based on board size
     if rows == 3:
         depth = 9
@@ -533,10 +420,13 @@ def hard_ai_move(board, piece):
             depth = 4   # giữa game
         else:
             depth = 5   # cuối game: ít vị trí → tăng depth
+
+    
     best_move, _ = minimax(board, depth, -math.inf, math.inf, True, piece, start_time, 5)
     
     if best_move and is_valid_location(board, best_move[0], best_move[1]):
         return best_move
+
     # Fallback to medium AI
     return medium_ai_move(board, piece)
 
@@ -1248,49 +1138,54 @@ class GameFrame(tk.Frame):
         self.draw_board()
         self.update()
         
-        # Tính điểm hiển thị cho cả hai phe (độc lập)
-        display_x = calculate_score_for_one_side(self.board, PLAYER_PIECE)
-        display_o = calculate_score_for_one_side(self.board, AI_PIECE)
+        # Tính điểm heuristic cho cả hai phe
+        heuristic_self = evaluate_board(self.board, self.turn)
+        opp_piece = AI_PIECE if self.turn == PLAYER_PIECE else PLAYER_PIECE
+        heuristic_opp = evaluate_board(self.board, opp_piece)
         
         move_time = time.time() - human_start_time
         
-        # Giữ nguyên giá trị âm/dương của điểm hiển thị
-        self.x_score = display_x
-        self.o_score = display_o
+        # Logic tính điểm mới: cả hai bên đều tấn công/phòng thủ, X và O bị trừ như nhau
+        is_9x9 = len(self.board) == 9
+        threshold = 1000  # Ngưỡng cho line mạnh (chỉ dùng cho 9x9)
         
-        # Lưu thời gian
+        # Người đánh luôn + heuristic_self
         if self.turn == PLAYER_PIECE:
-            self.x_times.append(move_time)
+            self.x_score += heuristic_self
+            current_score = self.x_score
             piece_name = "X"
         else:
-            self.o_times.append(move_time)
+            self.o_score += heuristic_self
+            current_score = self.o_score
             piece_name = "O"
         
-        self.update_scores()
+        # Trừ điểm mạnh nếu có line mạnh (chỉ cho 9x9), áp dụng như nhau cho X và O
+        if is_9x9:
+            if heuristic_self > threshold:  # Người đánh có line mạnh
+                if self.turn == PLAYER_PIECE:
+                    self.o_score -= heuristic_self  # O bị phạt
+                else:
+                    self.x_score -= heuristic_self  # X bị phạt
+            if heuristic_opp > threshold:  # Đối thủ có line mạnh
+                if self.turn == PLAYER_PIECE:
+                    self.x_score -= heuristic_opp  # X bị phạt
+                else:
+                    self.o_score -= heuristic_opp  # O bị phạt
         
-        # Tính chênh lệch
-        diff = display_x - display_o
-        if diff > 0:
-            lead_text = f"X đang dẫn trước {diff} điểm"
-        elif diff < 0:
-            lead_text = f"O đang dẫn trước {abs(diff)} điểm"
-        else:
-            lead_text = "Hai bên hòa nhau"
+        self.update_scores()
         
         # In thông tin ra console
         print(f"\n{'='*60}")
         print(f"{piece_name} đánh:")
         print(f"  - Vị trí: ({row}, {col})")
-        print(f"  - Điểm X: {display_x}")
-        print(f"  - Điểm O: {display_o}")
-        print(f"  - Chênh lệch: {lead_text}")
+        print(f"  - Heuristic self: {heuristic_self}, Heuristic opp: {heuristic_opp}")
+        print(f"  - Điểm tích lũy: {current_score}")
         print(f"  - Thời gian: {move_time:.4f} giây")
         print(f"{'='*60}\n")
         
         self.after_move()
 
     def ai_move(self):
-
         if self.game_over:
             return
 
@@ -1322,41 +1217,53 @@ class GameFrame(tk.Frame):
             if best_move is not None:
                 r, c = best_move
                 if 0 <= r < len(self.board) and 0 <= c < len(self.board[0]) and self.board[r][c] == EMPTY:
-                    
                     self.board[r][c] = piece
+                    
                     # VẼ LẠI BÀN CỜ NGAY LẬP TỨC
                     self.draw_board()
                     self.update()
-                    # Tính điểm hiển thị cho cả hai phe (độc lập)
-                    display_x = calculate_score_for_one_side(self.board, PLAYER_PIECE)
-                    display_o = calculate_score_for_one_side(self.board, AI_PIECE)
-                    # Giữ nguyên giá trị điểm hiển thị
-                    self.x_score = display_x
-                    self.o_score = display_o
-                    # Lưu thời gian
+                    
+                    # Tính điểm heuristic cho cả hai phe
+                    heuristic_self = evaluate_board(self.board, self.turn)
+                    opp_piece = AI_PIECE if self.turn == PLAYER_PIECE else PLAYER_PIECE
+                    heuristic_opp = evaluate_board(self.board, opp_piece)
+                    
+                    # Logic tính điểm mới: cả hai bên đều tấn công/phòng thủ, X và O bị trừ như nhau
+                    is_9x9 = len(self.board) == 9
+                    threshold = 1000  # Ngưỡng cho line mạnh (chỉ dùng cho 9x9)
+                    
+                    # Người đánh luôn + heuristic_self
                     if self.turn == PLAYER_PIECE:
-                        self.x_times.append(move_time)
+                        self.x_score += heuristic_self
+                        current_score = self.x_score
                         piece_name = "X"
                     else:
-                        self.o_times.append(move_time)
+                        self.o_score += heuristic_self
+                        current_score = self.o_score
                         piece_name = "O"
-                    self.update_scores()                   
-                    # Tính chênh lệch
-                    diff = display_x - display_o
-                    if diff > 0:
-                        lead_text = f"X đang dẫn trước {diff} điểm"
-                    elif diff < 0:
-                        lead_text = f"O đang dẫn trước {abs(diff)} điểm"
-                    else:
-                        lead_text = "Hai bên hòa nhau"
+                    
+                    # Trừ điểm mạnh nếu có line mạnh (chỉ cho 9x9), áp dụng như nhau cho X và O
+                    if is_9x9:
+                        if heuristic_self > threshold:  # Người đánh có line mạnh
+                            if self.turn == PLAYER_PIECE:
+                                self.o_score -= heuristic_self  # O bị phạt
+                            else:
+                                self.x_score -= heuristic_self  # X bị phạt
+                        if heuristic_opp > threshold:  # Đối thủ có line mạnh
+                            if self.turn == PLAYER_PIECE:
+                                self.x_score -= heuristic_opp  # X bị phạt
+                            else:
+                                self.o_score -= heuristic_opp  # O bị phạt
+                    
+                    self.update_scores()
+                    
                     # In thông tin ra console
                     ai_name = f"AI ({self.difficulty})" if self.mode != "Human vs Human" else ""
                     print(f"\n{'='*60}")
                     print(f"{ai_name} {piece_name} đánh:" if ai_name else f"{piece_name} đánh:")
                     print(f"  - Vị trí: ({r}, {c})")
-                    print(f"  - Điểm X: {display_x}")
-                    print(f"  - Điểm O: {display_o}")
-                    print(f"  - Chênh lệch: {lead_text}")
+                    print(f"  - Heuristic self: {heuristic_self}, Heuristic opp: {heuristic_opp}")
+                    print(f"  - Điểm tích lũy: {current_score}")
                     print(f"  - Thời gian: {move_time:.4f} giây")
                     print(f"{'='*60}\n")
                     
@@ -1383,6 +1290,9 @@ class GameFrame(tk.Frame):
                 self.board[r][c] = piece
                 self.draw_board()
                 self.after_move()
+
+
+
 
 # -----------------------------
 # Run the Application
