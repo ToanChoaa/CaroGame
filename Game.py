@@ -710,7 +710,7 @@ class WelcomeFrame(tk.Frame):
 
         title = tk.Label(
             card,
-            text="WELCOME TO TIC TAC TOE CỦA NHÓM 6",
+            text="WELCOME TO TIC TAC TOE CỦA NHÓM 4",
             font=("Cooper Black", 24),
             bg=self.CARD_BG,
             fg="#5e1111"
@@ -1332,7 +1332,7 @@ class GameFrame(tk.Frame):
                     # Tính điểm hiển thị cho cả hai phe (độc lập)
                     display_x = calculate_score_for_one_side(self.board, PLAYER_PIECE)
                     display_o = calculate_score_for_one_side(self.board, AI_PIECE)
-                    # Lưu lại điểm
+                    # Lưu lại điểmk
                     self.x_score = display_x
                     self.o_score = display_o
                     # Lưu thời gian
