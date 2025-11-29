@@ -1203,6 +1203,7 @@ class GameFrame(tk.Frame):
 
 
     def click_handler(self, event):
+        
         if self.game_over:
             return
 
@@ -1216,6 +1217,7 @@ class GameFrame(tk.Frame):
             return
 
         human_turn = False
+
         if self.mode == "Human vs Human":
             human_turn = True
         elif self.mode == "Human vs AI":
@@ -1254,7 +1256,7 @@ class GameFrame(tk.Frame):
         
         move_time = time.time() - human_start_time
         
-        # Giữ nguyên giá trị âm/dương của điểm hiển thị
+        # Luu lại điểm
         self.x_score = display_x
         self.o_score = display_o
         
@@ -1330,7 +1332,7 @@ class GameFrame(tk.Frame):
                     # Tính điểm hiển thị cho cả hai phe (độc lập)
                     display_x = calculate_score_for_one_side(self.board, PLAYER_PIECE)
                     display_o = calculate_score_for_one_side(self.board, AI_PIECE)
-                    # Giữ nguyên giá trị điểm hiển thị
+                    # Lưu lại điểm
                     self.x_score = display_x
                     self.o_score = display_o
                     # Lưu thời gian
